@@ -1,0 +1,51 @@
+[project]
+name = "chai-sutta"
+version = "0.1.0"
+description = "AI-powered hyperlocal city intelligence platform"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+    "geoalchemy2>=0.15.0",
+    "pydantic-settings>=2.6.0",
+    "redis>=5.2.0",
+    "arq>=0.26.0",
+    "httpx>=0.28.0",
+    "feedparser>=6.0.11",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "python-multipart>=0.0.12",
+    "qdrant-client>=1.12.0",
+    "sentence-transformers>=3.3.0",
+    "google-generativeai>=0.8.0",
+    "groq>=0.12.0",
+    "twikit>=2.0.0",
+    "asyncpraw>=7.8.0",
+    "beautifulsoup4>=4.12.0",
+    "Pillow>=10.4.0",
+    "python-dateutil>=2.9.0",
+    "orjson>=3.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "ANN", "B", "A", "SIM"]
+ignore = ["ANN101", "ANN102", "ANN401"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["app/tests"]

@@ -1,0 +1,51 @@
+# ============================================
+# Chai Sutta - Git Ignore
+# ============================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# --- Virtual Environments ---
+venv/
+.venv/
+env/
+
+# --- Environment / Secrets ---
+.env
+.env.local
+.env.production
+cookies.json
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# --- Testing & Linting ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# --- Docker ---
+docker-compose.override.yml
+
+# --- Uploads & Storage ---
+uploads/
+*.log
+
+# --- Alembic ---
+# Keep versions dir but ignore auto-generated __pycache__
+alembic/versions/__pycache__/
