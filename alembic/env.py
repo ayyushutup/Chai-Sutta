@@ -28,6 +28,27 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_object(obj, name, type_, reflected, compare_to) -> bool:
+    """Only include tables that belong to the Chai Sutta application."""
+    if type_ == "table":
+        my_tables = {
+            "cities",
+            "zones",
+            "city_summaries",
+            "events",
+            "news_articles",
+            "social_mentions",
+            "traffic_data",
+            "train_statuses",
+            "users",
+            "weather_data",
+            "community_reports",
+            "user_interactions",
+        }
+        return name in my_tables
+    return True
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -39,6 +60,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -47,7 +69,11 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection) -> None:  # noqa: ANN001
     """Execute migrations within a database connection."""
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+    )
 
     with context.begin_transaction():
         context.run_migrations()
