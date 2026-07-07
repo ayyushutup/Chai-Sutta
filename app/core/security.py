@@ -7,9 +7,9 @@ from uuid import UUID
 
 import httpx
 import jwt
+import bcrypt
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,8 +17,7 @@ from app.config import settings
 from app.core.database import get_db
 from app.core.exceptions import UnauthorizedException
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Passlib CryptContext removed; using direct bcrypt instead
 
 # OAuth2 scheme for token extraction
 oauth2_scheme = OAuth2PasswordBearer(
@@ -72,12 +71,18 @@ def verify_token(token: str) -> dict[str, Any] | None:
 
 def hash_password(password: str) -> str:
     """Hash a plaintext password using bcrypt."""
-    return pwd_context.hash(password)
+    pwd_bytes = password.encode("utf-8")
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pwd_bytes, salt)
+    return hashed.decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plaintext password against a bcrypt hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 
 async def get_current_user(
