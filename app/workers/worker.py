@@ -1,7 +1,17 @@
 """arq background worker settings and task routing."""
 import logging
+
 from arq.connections import RedisSettings
+
 from app.config import settings
+from app.workers.tasks.ai_tasks import compute_city_mood, embed_content, generate_city_summary
+from app.workers.tasks.ingestion_tasks import (
+    ingest_news_feeds,
+    ingest_social_mentions,
+    ingest_traffic,
+    ingest_weather,
+)
+from app.workers.tasks.summary_tasks import assemble_daily_digest
 
 logger = logging.getLogger("chai_sutta.worker")
 
@@ -17,17 +27,23 @@ async def shutdown(ctx: dict) -> None:
     logger.info("Stopping Chai Sutta background worker...")
 
 
-async def dummy_task(ctx: dict) -> str:
-    """A placeholder task to ensure worker has at least one registered function."""
-    logger.info("Executing dummy setup task...")
-    return "done"
-
-
 # arq worker configuration class
 class WorkerSettings:
     """Worker settings class for arq."""
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
-    functions = [dummy_task]  # Must have at least one task
+    functions = [
+        # Ingestion tasks
+        ingest_news_feeds,
+        ingest_weather,
+        ingest_traffic,
+        ingest_social_mentions,
+        # AI tasks
+        generate_city_summary,
+        compute_city_mood,
+        embed_content,
+        # Summary / digest tasks
+        assemble_daily_digest,
+    ]
     on_startup = startup
     on_shutdown = shutdown
     max_jobs = 10
