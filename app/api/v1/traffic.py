@@ -4,42 +4,17 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from geoalchemy2 import Geography
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import GeoQueryParams, get_db
+from app.api.deps import get_db
+from app.models.traffic import TrafficData
+from app.models.zone import Zone
+from app.schemas.traffic import TrafficResponse, TrafficZoneResponse
 
 router = APIRouter()
-
-
-# ── Schemas ─────────────────────────────────────────────────────────────────
-
-
-class TrafficResponse(BaseModel):
-    """Traffic incident or flow data."""
-    id: UUID
-    city_id: UUID
-    type: str  # incident, congestion, closure
-    severity: str  # low, medium, high, critical
-    title: str
-    description: str | None = None
-    lat: float | None = None
-    lon: float | None = None
-    road_name: str | None = None
-    delay_minutes: int | None = None
-    updated_at: str | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class TrafficZoneResponse(BaseModel):
-    """Traffic summary for a zone."""
-    zone_id: UUID
-    congestion_level: str  # free, light, moderate, heavy, gridlock
-    average_speed_kph: float | None = None
-    incidents: list[TrafficResponse]
-    updated_at: str | None = None
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -54,9 +29,24 @@ async def get_city_traffic(
     city_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get all traffic incidents and flow data for a city."""
-    # TODO: Implement traffic service
-    return []
+    """Get the latest traffic data point per zone for a city."""
+    # Use a sub-query to get the latest recorded_at per zone_id
+    subq = (
+        select(TrafficData.zone_id, func.max(TrafficData.recorded_at).label("max_rec"))
+        .where(TrafficData.city_id == city_id)
+        .group_by(TrafficData.zone_id)
+        .subquery()
+    )
+    stmt = select(TrafficData).join(
+        subq,
+        and_(
+            TrafficData.zone_id == subq.c.zone_id,
+            TrafficData.recorded_at == subq.c.max_rec,
+        ),
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+    return [TrafficResponse.model_validate(r) for r in rows]
 
 
 @router.get(
@@ -68,9 +58,31 @@ async def get_zone_traffic(
     zone_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get traffic summary and incidents for a specific zone."""
-    # TODO: Implement zone traffic service
-    raise NotImplementedError("Zone traffic not yet implemented.")
+    """Get latest traffic summary and data points for a specific zone."""
+    # Fetch zone name
+    zone_result = await db.execute(select(Zone).where(Zone.id == zone_id))
+    zone = zone_result.scalar_one_or_none()
+    if zone is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zone not found.")
+
+    # Fetch latest traffic records for zone
+    stmt = (
+        select(TrafficData)
+        .where(TrafficData.zone_id == zone_id)
+        .order_by(TrafficData.recorded_at.desc())
+        .limit(10)
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+
+    # Derive overall congestion level from latest record
+    overall = rows[0].congestion_level if rows else "unknown"
+
+    return TrafficZoneResponse(
+        zone_name=zone.name,
+        overall_congestion=overall,
+        data_points=[TrafficResponse.model_validate(r) for r in rows],
+    )
 
 
 @router.get(
@@ -84,6 +96,23 @@ async def get_nearby_traffic(
     radius_km: float = Query(default=5.0, gt=0, le=50),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get traffic incidents near a geographic point."""
-    # TODO: Implement nearby traffic service
-    return []
+    """Get traffic data points near a geographic coordinate."""
+    radius_meters = radius_km * 1000.0
+    point = func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326)
+
+    stmt = select(TrafficData).where(
+        func.ST_DWithin(
+            func.cast(TrafficData.location, Geography),
+            func.cast(point, Geography),
+            radius_meters,
+        )
+    ).order_by(
+        func.ST_Distance(
+            func.cast(TrafficData.location, Geography),
+            func.cast(point, Geography),
+        )
+    ).limit(50)
+
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+    return [TrafficResponse.model_validate(r) for r in rows]
