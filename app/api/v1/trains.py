@@ -5,33 +5,14 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.models.train import TrainStatus
+from app.schemas.train import TrainResponse
 
 router = APIRouter()
-
-
-# ── Schemas ─────────────────────────────────────────────────────────────────
-
-
-class TrainResponse(BaseModel):
-    """Train line or service status."""
-    id: UUID
-    city_id: UUID
-    line_name: str
-    status: str  # on_time, delayed, cancelled, suspended
-    delay_minutes: int | None = None
-    reason: str | None = None
-    origin: str | None = None
-    destination: str | None = None
-    scheduled_time: str | None = None
-    expected_time: str | None = None
-    platform: str | None = None
-    updated_at: str | None = None
-
-    model_config = {"from_attributes": True}
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -46,9 +27,26 @@ async def get_city_trains(
     city_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get all train line statuses for a city."""
-    # TODO: Implement train status service
-    return []
+    """Get the latest recorded status for each train line in a city."""
+    # Latest record per line_name via subquery
+    from sqlalchemy import func, and_
+
+    subq = (
+        select(TrainStatus.line_name, func.max(TrainStatus.recorded_at).label("max_rec"))
+        .where(TrainStatus.city_id == city_id)
+        .group_by(TrainStatus.line_name)
+        .subquery()
+    )
+    stmt = select(TrainStatus).join(
+        subq,
+        and_(
+            TrainStatus.line_name == subq.c.line_name,
+            TrainStatus.recorded_at == subq.c.max_rec,
+        ),
+    )
+    result = await db.execute(stmt)
+    trains = result.scalars().all()
+    return [TrainResponse.model_validate(t) for t in trains]
 
 
 @router.get(
@@ -60,9 +58,16 @@ async def get_line_status(
     line_name: str,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get status updates for a specific train line."""
-    # TODO: Implement line status service
-    return []
+    """Get the most recent status updates for a specific train line."""
+    stmt = (
+        select(TrainStatus)
+        .where(TrainStatus.line_name == line_name)
+        .order_by(TrainStatus.recorded_at.desc())
+        .limit(10)
+    )
+    result = await db.execute(stmt)
+    trains = result.scalars().all()
+    return [TrainResponse.model_validate(t) for t in trains]
 
 
 @router.get(
@@ -74,6 +79,16 @@ async def get_delayed_trains(
     city_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get only delayed or disrupted trains for a city."""
-    # TODO: Implement delayed trains filter
-    return []
+    """Get only delayed, cancelled, or diverted trains for a city."""
+    stmt = (
+        select(TrainStatus)
+        .where(
+            TrainStatus.city_id == city_id,
+            TrainStatus.status != "on_time",
+        )
+        .order_by(TrainStatus.recorded_at.desc())
+        .limit(50)
+    )
+    result = await db.execute(stmt)
+    trains = result.scalars().all()
+    return [TrainResponse.model_validate(t) for t in trains]

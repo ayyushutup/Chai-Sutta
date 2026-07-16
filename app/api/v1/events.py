@@ -1,69 +1,22 @@
 """Events routes: list, create, detail, and upcoming."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
+from app.core.geo import point_from_coords
+from app.models.event import Event
+from app.models.user import User
+from app.schemas.common import PaginatedResponse
+from app.schemas.event import EventCreate, EventResponse
 
 router = APIRouter()
-
-
-# ── Schemas ─────────────────────────────────────────────────────────────────
-
-
-class EventCreate(BaseModel):
-    """Schema for creating an event."""
-    title: str = Field(min_length=3, max_length=200)
-    description: str = Field(min_length=10, max_length=5000)
-    city_id: UUID
-    zone_id: UUID | None = None
-    venue: str | None = None
-    address: str | None = None
-    lat: float | None = None
-    lon: float | None = None
-    starts_at: str
-    ends_at: str | None = None
-    category: str | None = None
-    image_url: str | None = None
-    ticket_url: str | None = None
-    is_free: bool = True
-
-
-class EventResponse(BaseModel):
-    """Event response."""
-    id: UUID
-    title: str
-    description: str
-    city_id: UUID
-    zone_id: UUID | None = None
-    venue: str | None = None
-    address: str | None = None
-    lat: float | None = None
-    lon: float | None = None
-    starts_at: str
-    ends_at: str | None = None
-    category: str | None = None
-    image_url: str | None = None
-    ticket_url: str | None = None
-    is_free: bool = True
-    created_by: UUID | None = None
-    created_at: str | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class PaginatedEventResponse(BaseModel):
-    """Paginated event list."""
-    items: list[EventResponse]
-    total: int
-    page: int
-    page_size: int
-    has_next: bool
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -71,7 +24,7 @@ class PaginatedEventResponse(BaseModel):
 
 @router.get(
     "/",
-    response_model=PaginatedEventResponse,
+    response_model=PaginatedResponse[EventResponse],
     summary="List events",
 )
 async def list_events(
@@ -83,8 +36,32 @@ async def list_events(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """List events with optional filters and pagination."""
-    # TODO: Implement events listing service
-    return PaginatedEventResponse(items=[], total=0, page=page, page_size=page_size, has_next=False)
+    stmt = select(Event).where(Event.is_active == True)
+
+    if city_id:
+        stmt = stmt.where(Event.city_id == city_id)
+    if zone_id:
+        stmt = stmt.where(Event.zone_id == zone_id)
+    if category:
+        stmt = stmt.where(Event.category == category)
+
+    stmt = stmt.order_by(Event.starts_at.asc())
+
+    # Total count
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    # Paginate
+    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(stmt)
+    events = result.scalars().all()
+
+    return PaginatedResponse(
+        items=[EventResponse.model_validate(e) for e in events],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.post(
@@ -95,12 +72,52 @@ async def list_events(
 )
 async def create_event(
     payload: EventCreate,
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Create a new event (authentication required)."""
-    # TODO: Implement event creation service
-    raise NotImplementedError("Event creation not yet implemented.")
+    location = None
+    if payload.location:
+        location = point_from_coords(payload.location.lat, payload.location.lon)
+
+    event = Event(
+        title=payload.title,
+        description=payload.description,
+        category=payload.category,
+        city_id=payload.city_id,
+        zone_id=payload.zone_id,
+        location=location,
+        starts_at=payload.starts_at,
+        ends_at=payload.ends_at,
+        source="user",
+        is_active=True,
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+    return EventResponse.model_validate(event)
+
+
+@router.get(
+    "/upcoming/{city_id}",
+    response_model=list[EventResponse],
+    summary="Get upcoming events for a city",
+)
+async def get_upcoming_events(
+    city_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Get upcoming events for a specific city, sorted by start time."""
+    now = datetime.now(timezone.utc)
+    stmt = (
+        select(Event)
+        .where(Event.city_id == city_id, Event.is_active == True, Event.starts_at >= now)
+        .order_by(Event.starts_at.asc())
+        .limit(20)
+    )
+    result = await db.execute(stmt)
+    events = result.scalars().all()
+    return [EventResponse.model_validate(e) for e in events]
 
 
 @router.get(
@@ -113,19 +130,10 @@ async def get_event(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Get a single event by ID."""
-    # TODO: Implement event detail service
-    raise NotImplementedError("Event detail not yet implemented.")
-
-
-@router.get(
-    "/upcoming/{city_id}",
-    response_model=list[EventResponse],
-    summary="Get upcoming events for a city",
-)
-async def get_upcoming_events(
-    city_id: UUID,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Get upcoming events for a specific city."""
-    # TODO: Implement upcoming events service
-    return []
+    result = await db.execute(
+        select(Event).where(Event.id == event_id, Event.is_active == True)
+    )
+    event = result.scalar_one_or_none()
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found.")
+    return EventResponse.model_validate(event)

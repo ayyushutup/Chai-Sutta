@@ -4,44 +4,15 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.models.weather import WeatherData
+from app.schemas.weather import WeatherResponse
 
 router = APIRouter()
-
-
-# ── Schemas ─────────────────────────────────────────────────────────────────
-
-
-class ForecastEntry(BaseModel):
-    """Single forecast entry."""
-    datetime: str
-    temp_c: float
-    condition: str
-    humidity: int | None = None
-    wind_kph: float | None = None
-    icon_url: str | None = None
-
-
-class WeatherResponse(BaseModel):
-    """Weather data response."""
-    city_id: UUID
-    zone_id: UUID | None = None
-    temp_c: float
-    feels_like_c: float | None = None
-    condition: str
-    humidity: int | None = None
-    wind_kph: float | None = None
-    aqi: int | None = None
-    aqi_label: str | None = None
-    icon_url: str | None = None
-    updated_at: str | None = None
-    forecast: list[ForecastEntry] | None = None
-
-    model_config = {"from_attributes": True}
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -56,9 +27,20 @@ async def get_city_weather(
     city_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get the current weather conditions for a city."""
-    # TODO: Implement weather service
-    raise NotImplementedError("City weather not yet implemented.")
+    """Get the most recent weather snapshot for a city."""
+    result = await db.execute(
+        select(WeatherData)
+        .where(WeatherData.city_id == city_id)
+        .order_by(WeatherData.recorded_at.desc())
+        .limit(1)
+    )
+    weather = result.scalar_one_or_none()
+    if weather is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No weather data found for this city.",
+        )
+    return WeatherResponse.model_validate(weather)
 
 
 @router.get(
@@ -70,9 +52,20 @@ async def get_zone_weather(
     zone_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get the current weather conditions for a specific zone."""
-    # TODO: Implement zone weather service
-    raise NotImplementedError("Zone weather not yet implemented.")
+    """Get the most recent weather snapshot for a specific zone."""
+    result = await db.execute(
+        select(WeatherData)
+        .where(WeatherData.zone_id == zone_id)
+        .order_by(WeatherData.recorded_at.desc())
+        .limit(1)
+    )
+    weather = result.scalar_one_or_none()
+    if weather is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No weather data found for this zone.",
+        )
+    return WeatherResponse.model_validate(weather)
 
 
 @router.get(
@@ -84,6 +77,21 @@ async def get_forecast(
     city_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get multi-day weather forecast for a city."""
-    # TODO: Implement forecast service
-    raise NotImplementedError("Weather forecast not yet implemented.")
+    """Get the latest weather record including forecast data for a city.
+
+    The returned record includes ``hourly_forecast`` and ``daily_forecast``
+    JSONB fields populated by the ingestion worker.
+    """
+    result = await db.execute(
+        select(WeatherData)
+        .where(WeatherData.city_id == city_id)
+        .order_by(WeatherData.recorded_at.desc())
+        .limit(1)
+    )
+    weather = result.scalar_one_or_none()
+    if weather is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No forecast data found for this city.",
+        )
+    return WeatherResponse.model_validate(weather)
