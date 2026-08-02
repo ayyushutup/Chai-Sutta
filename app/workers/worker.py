@@ -4,6 +4,7 @@ import logging
 from arq.connections import RedisSettings
 
 from app.config import settings
+from app.workers.scheduler import CRON_JOBS
 from app.workers.tasks.ai_tasks import compute_city_mood, embed_content, generate_city_summary
 from app.workers.tasks.ingestion_tasks import (
     ingest_news_feeds,
@@ -44,6 +45,7 @@ class WorkerSettings:
         # Summary / digest tasks
         assemble_daily_digest,
     ]
+    cron_jobs = CRON_JOBS
     on_startup = startup
     on_shutdown = shutdown
     max_jobs = 10
