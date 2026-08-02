@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import logging
+from time import mktime
 from uuid import UUID
 
+import feedparser
 import httpx
 from geoalchemy2.shape import to_shape
 from sqlalchemy import select
@@ -12,10 +15,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.models.city import City
+from app.models.news import NewsArticle
 from app.models.weather import WeatherData
 from app.models.zone import Zone
 
 logger = logging.getLogger("chai_sutta.workers.ingestion")
+
+# Default RSS feed sources per city category/general
+DEFAULT_RSS_FEEDS = [
+    {"source_name": "NDTV News", "category": "general", "url": "https://feeds.feedburner.com/ndtvnews-top-stories"},
+    {"source_name": "Times of India", "category": "general", "url": "https://timesofindia.indiatimes.com/rssfeedstopstories.cms"},
+    {"source_name": "The Hindu", "category": "general", "url": "https://www.thehindu.com/news/national/feeder/default.rss"},
+    {"source_name": "Indian Express", "category": "general", "url": "https://indianexpress.com/section/india/feed/"},
+]
 
 # WMO Weather interpretation codes (WW) to condition text
 WMO_CODE_MAP = {
@@ -56,8 +68,14 @@ def _create_db_session_factory() -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 
+def _compute_content_hash(source_url: str, title: str) -> str:
+    """Generate SHA-256 hash for article deduplication."""
+    data = f"{source_url.strip().lower()}:{title.strip().lower()}"
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
 async def ingest_news_feeds(ctx: dict, city_id: str | None = None) -> str:
-    """Ingest news articles from RSS feeds and web scrapers.
+    """Ingest news articles from RSS feeds, deduplicate using content_hash, and associate with active cities.
 
     Args:
         ctx: ARQ worker context dict (contains DB session, Redis, etc.).
@@ -66,9 +84,94 @@ async def ingest_news_feeds(ctx: dict, city_id: str | None = None) -> str:
     Returns:
         Summary string of ingestion results.
     """
-    logger.info("ingest_news_feeds called | city_id=%s", city_id)
-    # Placeholder — real implementation goes here
-    return "ingest_news_feeds: not yet implemented"
+    logger.info("ingest_news_feeds starting | city_id=%s", city_id)
+
+    session_factory = ctx.get("db_session_factory")
+    if not session_factory:
+        session_factory = _create_db_session_factory()
+
+    articles_created = 0
+    duplicates_skipped = 0
+
+    async with session_factory() as db:
+        # Fetch active cities
+        stmt = select(City).where(City.is_active == True)
+        if city_id:
+            stmt = stmt.where(City.id == UUID(city_id))
+        
+        result = await db.execute(stmt)
+        cities = result.scalars().all()
+
+        if not cities:
+            logger.info("No active cities found for news feed ingestion.")
+            return "ingest_news_feeds: 0 articles created (no active cities)"
+
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as http_client:
+            for feed in DEFAULT_RSS_FEEDS:
+                feed_url = feed["url"]
+                source_name = feed["source_name"]
+                default_category = feed["category"]
+
+                try:
+                    resp = await http_client.get(feed_url)
+                    resp.raise_for_status()
+                    parsed = feedparser.parse(resp.text)
+                except Exception as err:
+                    logger.error("Failed to fetch RSS feed %s (%s): %s", source_name, feed_url, err)
+                    continue
+
+                for entry in parsed.entries:
+                    title = getattr(entry, "title", "").strip()
+                    source_url = getattr(entry, "link", "").strip()
+
+                    if not title or not source_url:
+                        continue
+
+                    # Deduplication check via SHA-256 hash
+                    content_hash = _compute_content_hash(source_url, title)
+                    existing_check = await db.execute(
+                        select(NewsArticle.id).where(NewsArticle.content_hash == content_hash)
+                    )
+                    if existing_check.scalar_one_or_none() is not None:
+                        duplicates_skipped += 1
+                        continue
+
+                    # Article summary / content parsing
+                    summary = getattr(entry, "summary", "") or getattr(entry, "description", None)
+                    content = getattr(entry, "content", [{}])[0].get("value", None) if hasattr(entry, "content") else None
+
+                    # Published timestamp
+                    published_at = datetime.now(timezone.utc)
+                    if hasattr(entry, "published_parsed") and entry.published_parsed:
+                        published_at = datetime.fromtimestamp(mktime(entry.published_parsed), tz=timezone.utc)
+
+                    # Simple city matching logic based on headline/summary
+                    # Assign to all matching cities or default to the first city if general
+                    full_text = f"{title} {summary or ''}".lower()
+                    matched_cities = [c for c in cities if c.name.lower() in full_text]
+                    target_cities = matched_cities if matched_cities else [cities[0]]
+
+                    for target_city in target_cities:
+                        article = NewsArticle(
+                            title=title,
+                            content=content,
+                            summary=summary,
+                            source_url=source_url,
+                            source_name=source_name,
+                            category=default_category,
+                            importance_score=50,  # default baseline importance
+                            city_id=target_city.id,
+                            content_hash=f"{content_hash}_{target_city.id}",  # unique per city mapping
+                            status="published",
+                            published_at=published_at,
+                        )
+                        db.add(article)
+                        articles_created += 1
+
+        await db.commit()
+
+    logger.info("ingest_news_feeds completed | created=%d skipped_duplicates=%d", articles_created, duplicates_skipped)
+    return f"ingest_news_feeds: successfully created {articles_created} articles ({duplicates_skipped} duplicates skipped)"
 
 
 async def ingest_weather(ctx: dict, city_id: str | None = None) -> str:
