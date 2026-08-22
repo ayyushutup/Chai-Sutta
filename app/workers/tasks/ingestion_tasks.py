@@ -13,6 +13,7 @@ from geoalchemy2.shape import to_shape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import asyncio
 from app.config import settings
 from app.core.geo import point_from_coords
 from app.models.city import City
@@ -20,6 +21,7 @@ from app.models.news import NewsArticle
 from app.models.traffic import TrafficData
 from app.models.weather import WeatherData
 from app.models.zone import Zone
+from app.models.social_mention import SocialMention
 
 logger = logging.getLogger("chai_sutta.workers.ingestion")
 
@@ -368,6 +370,216 @@ async def ingest_social_mentions(ctx: dict, city_id: str | None = None) -> str:
         ctx: ARQ worker context.
         city_id: Optional city UUID string.
     """
-    logger.info("ingest_social_mentions called | city_id=%s", city_id)
-    # Placeholder — real implementation goes here
-    return "ingest_social_mentions: not yet implemented"
+    logger.info("ingest_social_mentions starting | city_id=%s", city_id)
+
+    session_factory = ctx.get("db_session_factory")
+    if not session_factory:
+        session_factory = _create_db_session_factory()
+
+    records_created = 0
+    duplicates_skipped = 0
+
+    async with session_factory() as db:
+        # Fetch active cities and their zones
+        stmt = select(City).where(City.is_active == True)
+        if city_id:
+            stmt = stmt.where(City.id == UUID(city_id))
+        
+        result = await db.execute(stmt)
+        cities = result.scalars().all()
+
+        if not cities:
+            logger.info("No active cities found for social mention ingestion.")
+            return "ingest_social_mentions: 0 records created (no active cities)"
+
+        # Subreddit mapping per city
+        city_subreddits = {
+            "bengaluru": ["bangalore", "bengaluru"],
+            "mumbai": ["mumbai"],
+        }
+
+        # Track post IDs added in this session to prevent duplicate insertion error
+        added_post_ids = set()
+
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as http_client:
+            for city in cities:
+                # --- Reddit Ingestion ---
+                subreddits = city_subreddits.get(city.slug, [city.slug])
+                for subreddit in subreddits:
+                    url = f"https://www.reddit.com/r/{subreddit}/new.json"
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    }
+                    try:
+                        resp = await http_client.get(url, headers=headers)
+                        resp.raise_for_status()
+                        listing = resp.json()
+                        posts = listing.get("data", {}).get("children", [])
+                    except Exception as err:
+                        logger.error("Reddit scrape failed for r/%s: %s", subreddit, err)
+                        continue
+
+                    for post_wrapper in posts:
+                        post = post_wrapper.get("data", {})
+                        post_id = post.get("id")
+                        title = post.get("title", "")
+                        selftext = post.get("selftext", "")
+                        content = f"{title}\n{selftext}".strip()
+                        author = post.get("author", "anonymous")
+                        score = int(post.get("score", 0))
+                        created_utc = post.get("created_utc")
+
+                        if not post_id or not content:
+                            continue
+
+                        # Check in-memory deduplication first
+                        if f"reddit_{post_id}" in added_post_ids:
+                            duplicates_skipped += 1
+                            continue
+
+                        # Check database deduplication
+                        existing_check = await db.execute(
+                            select(SocialMention.id).where(
+                                SocialMention.platform == "reddit",
+                                SocialMention.post_id == post_id
+                            )
+                        )
+                        if existing_check.scalar_one_or_none() is not None:
+                            duplicates_skipped += 1
+                            continue
+
+                        # Match zone
+                        zone_id = None
+                        content_lower = content.lower()
+                        for zone in city.zones:
+                            if zone.name.lower() in content_lower or zone.slug.lower() in content_lower:
+                                zone_id = zone.id
+                                break
+
+                        # Match category
+                        category = "general"
+                        if any(w in content_lower for w in ["traffic", "jam", "road", "metro", "gridlock", "flyover"]):
+                            category = "traffic"
+                        elif any(w in content_lower for w in ["rain", "flood", "weather", "heat", "cold", "monsoon"]):
+                            category = "weather"
+                        elif any(w in content_lower for w in ["crime", "police", "safe", "danger", "robbery", "scam"]):
+                            category = "safety"
+                        elif any(w in content_lower for w in ["event", "festival", "concert", "meetup", "show"]):
+                            category = "event"
+                        elif any(w in content_lower for w in ["water", "power", "electricity", "cut", "garbage"]):
+                            category = "utility"
+
+                        posted_at = datetime.fromtimestamp(created_utc, tz=timezone.utc) if created_utc else datetime.now(timezone.utc)
+
+                        mention = SocialMention(
+                            platform="reddit",
+                            post_id=post_id,
+                            content=content,
+                            author=author,
+                            engagement_score=score,
+                            city_id=city.id,
+                            zone_id=zone_id,
+                            category=category,
+                            posted_at=posted_at,
+                        )
+                        db.add(mention)
+                        added_post_ids.add(f"reddit_{post_id}")
+                        records_created += 1
+
+                # --- Twitter Ingestion (Twikit) ---
+                if settings.TWITTER_USERNAME and settings.TWITTER_PASSWORD:
+                    try:
+                        from twikit import Client
+                        client = Client('en-US')
+                        
+                        await asyncio.to_thread(
+                            client.login,
+                            auth_info_1=settings.TWITTER_USERNAME,
+                            auth_info_2=settings.TWITTER_EMAIL,
+                            password=settings.TWITTER_PASSWORD
+                        )
+                        
+                        tweets = await asyncio.to_thread(
+                            client.search_tweet,
+                            query=city.name,
+                            product='Latest'
+                        )
+                        
+                        for tweet in tweets:
+                            tweet_id = getattr(tweet, "id", None)
+                            tweet_text = getattr(tweet, "text", "")
+                            if not tweet_id or not tweet_text:
+                                continue
+
+                            # Check in-memory deduplication first
+                            if f"twitter_{tweet_id}" in added_post_ids:
+                                duplicates_skipped += 1
+                                continue
+
+                            # Check database deduplication
+                            existing_check = await db.execute(
+                                select(SocialMention.id).where(
+                                    SocialMention.platform == "twitter",
+                                    SocialMention.post_id == str(tweet_id)
+                                )
+                            )
+                            if existing_check.scalar_one_or_none() is not None:
+                                duplicates_skipped += 1
+                                continue
+
+                            zone_id = None
+                            tweet_text_lower = tweet_text.lower()
+                            for zone in city.zones:
+                                if zone.name.lower() in tweet_text_lower or zone.slug.lower() in tweet_text_lower:
+                                    zone_id = zone.id
+                                    break
+
+                            category = "general"
+                            if any(w in tweet_text_lower for w in ["traffic", "jam", "road", "metro", "gridlock", "flyover"]):
+                                category = "traffic"
+                            elif any(w in tweet_text_lower for w in ["rain", "flood", "weather", "heat", "cold", "monsoon"]):
+                                category = "weather"
+                            elif any(w in tweet_text_lower for w in ["crime", "police", "safe", "danger", "robbery", "scam"]):
+                                category = "safety"
+                            elif any(w in tweet_text_lower for w in ["event", "festival", "concert", "meetup", "show"]):
+                                category = "event"
+                            elif any(w in tweet_text_lower for w in ["water", "power", "electricity", "cut", "garbage"]):
+                                category = "utility"
+
+                            likes = int(getattr(tweet, "favorite_count", 0) or 0)
+                            retweets = int(getattr(tweet, "retweet_count", 0) or 0)
+                            engagement = likes + retweets
+
+                            author_info = getattr(tweet, "user", None)
+                            author_handle = getattr(author_info, "screen_name", "anonymous") if author_info else "anonymous"
+                            
+                            created_at_str = getattr(tweet, "created_at", None)
+                            posted_at = datetime.now(timezone.utc)
+                            if created_at_str:
+                                try:
+                                    posted_at = datetime.strptime(created_at_str, "%a %b %d %H:%M:%S %z %Y")
+                                except Exception:
+                                    pass
+
+                            mention = SocialMention(
+                                platform="twitter",
+                                post_id=str(tweet_id),
+                                content=tweet_text,
+                                author=author_handle,
+                                engagement_score=engagement,
+                                city_id=city.id,
+                                zone_id=zone_id,
+                                category=category,
+                                posted_at=posted_at,
+                            )
+                            db.add(mention)
+                            added_post_ids.add(f"twitter_{tweet_id}")
+                            records_created += 1
+
+                    except Exception as err:
+                        logger.error("Twitter scrape failed for %s using twikit: %s", city.name, err)
+
+        await db.commit()
+
+    logger.info("ingest_social_mentions completed | created=%d skipped=%d", records_created, duplicates_skipped)
+    return f"ingest_social_mentions: successfully created {records_created} records ({duplicates_skipped} duplicates skipped)"
