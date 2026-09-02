@@ -22,7 +22,7 @@
 
 **Chai Sutta** is a hyperlocal city intelligence backend that aggregates and serves real-time data about Indian cities — news feeds, live weather, traffic incidents, train statuses, community-filed reports, and trending topics — all powered by LLMs for natural-language city insights.
 
-The name is a nod to the quintessential Indian street corner (the *chai-sutta* spot) where local news and gossip flows freely. The platform replicates that for the digital age.
+The name is a nod to the quintessential Indian street corner (the *chai-sutta* spot) where local news and gossip flows freely. The platform replicates that for the digital age...git stat
 
 ### Core Capabilities
 
