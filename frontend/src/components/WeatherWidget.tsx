@@ -1,11 +1,18 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Sun, Wind, Eye, Droplets, Play } from 'lucide-react';
+import { getCityWeather, WeatherData } from '../services/api';
 
 interface WeatherProps {
   city: string;
 }
 
 export const WeatherWidget: React.FC<WeatherProps> = ({ city }) => {
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+
+  useEffect(() => {
+    getCityWeather(city).then((data) => setWeather(data));
+  }, [city]);
+
   return (
     <div className="dark-card p-6 sm:p-8 rounded-3xl relative overflow-hidden bg-gradient-to-br from-[#27084e] via-[#1a0535] to-[#120324] border border-purple-400/20 shadow-[0_15px_40px_rgba(0,0,0,0.5)]">
       {/* Background neon ambient glow */}
@@ -55,8 +62,8 @@ export const WeatherWidget: React.FC<WeatherProps> = ({ city }) => {
           {/* Live Data Badge Overlays on Image */}
           <div className="absolute top-4 left-4 z-10 flex items-center gap-2 bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-full border border-purple-400/30">
             <Sun className="w-4 h-4 text-[#ff9100]" />
-            <span className="text-xs font-extrabold text-white font-mono">29°C</span>
-            <span className="text-[10px] text-purple-200">| Feels 31°C</span>
+            <span className="text-xs font-extrabold text-white font-mono">{weather?.temperature ?? 31}°C</span>
+            <span className="text-[10px] text-purple-200">| {weather?.condition ?? 'Thunderstorms likely'}</span>
           </div>
 
           <div className="absolute top-4 right-4 z-10 bg-[#ffee00] text-black backdrop-blur-md px-3 py-1 rounded-full text-[11px] font-marker font-bold shadow-[0_0_15px_rgba(255,238,0,0.4)]">
@@ -74,21 +81,21 @@ export const WeatherWidget: React.FC<WeatherProps> = ({ city }) => {
               <Wind className="w-3.5 h-3.5 text-[#00e5ff]" />
               <div>
                 <span className="text-[9px] text-purple-300 block uppercase">Wind</span>
-                <span className="font-bold text-[#00e5ff]">14 km/h</span>
+                <span className="font-bold text-[#00e5ff]">{weather?.wind_speed ?? 18} km/h</span>
               </div>
             </div>
             <div className="flex items-center gap-2 text-purple-100">
               <Droplets className="w-3.5 h-3.5 text-[#ff9100]" />
               <div>
                 <span className="text-[9px] text-purple-300 block uppercase">Humidity</span>
-                <span className="font-bold text-[#ff9100]">72%</span>
+                <span className="font-bold text-[#ff9100]">{weather?.humidity ?? 78}%</span>
               </div>
             </div>
             <div className="flex items-center gap-2 text-purple-100">
               <Eye className="w-3.5 h-3.5 text-[#ffee00]" />
               <div>
-                <span className="text-[9px] text-purple-300 block uppercase">Visibility</span>
-                <span className="font-bold text-[#ffee00]">6.0 km</span>
+                <span className="text-[9px] text-purple-300 block uppercase">Precip</span>
+                <span className="font-bold text-[#ffee00]">{weather?.rain ?? 0.2} mm</span>
               </div>
             </div>
           </div>
@@ -97,3 +104,4 @@ export const WeatherWidget: React.FC<WeatherProps> = ({ city }) => {
     </div>
   );
 };
+

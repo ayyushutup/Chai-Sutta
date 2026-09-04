@@ -1,25 +1,17 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Calendar, MapPin, Clock, Users, ArrowUpRight } from 'lucide-react';
+import { getCityEvents, CityEvent } from '../services/api';
 
-export const EventsWidget: React.FC = () => {
-  const events = [
-    {
-      id: 'e1',
-      title: 'Indie Music & Street Chai Night',
-      date: 'Sat, Sep 12 • 6:30 PM',
-      venue: 'Cubbon Amphitheatre',
-      category: 'Music & Vibes',
-      attendees: '340 interested',
-    },
-    {
-      id: 'e2',
-      title: 'Hyperlocal Tech Builders Meetup',
-      date: 'Sun, Sep 13 • 4:00 PM',
-      venue: 'WeWork Galaxy',
-      category: 'Networking',
-      attendees: '190 interested',
-    }
-  ];
+interface EventsWidgetProps {
+  city?: string;
+}
+
+export const EventsWidget: React.FC<EventsWidgetProps> = ({ city = 'Mumbai' }) => {
+  const [events, setEvents] = useState<CityEvent[]>([]);
+
+  useEffect(() => {
+    getCityEvents(city).then((data) => setEvents(data));
+  }, [city]);
 
   return (
     <div className="dark-card p-6 rounded-2xl relative overflow-hidden bg-[#180533] border border-purple-400/20 shadow-xl space-y-4 group hover:border-[#ffee00]/50 transition-all">
@@ -42,9 +34,9 @@ export const EventsWidget: React.FC = () => {
       </div>
 
       <div className="space-y-3">
-        {events.map(ev => (
-          <div 
-            key={ev.id} 
+        {events.map((ev) => (
+          <div
+            key={ev.id}
             className="p-3.5 rounded-xl bg-[#120327] border border-purple-400/15 hover:border-[#c084fc]/40 transition-all space-y-2"
           >
             <div className="flex items-center justify-between text-[11px]">
@@ -52,7 +44,7 @@ export const EventsWidget: React.FC = () => {
                 {ev.category}
               </span>
               <span className="text-purple-300 flex items-center gap-1 font-mono text-[10px]">
-                <Clock className="w-3 h-3 text-[#ff9100]" /> {ev.date}
+                <Clock className="w-3 h-3 text-[#ff9100]" /> {ev.starts_at}
               </span>
             </div>
 
@@ -62,10 +54,10 @@ export const EventsWidget: React.FC = () => {
 
             <div className="flex items-center justify-between pt-2 border-t border-purple-400/10 text-[11px] text-purple-300">
               <span className="flex items-center gap-1 text-purple-100">
-                <MapPin className="w-3 h-3 text-[#ffee00]" /> {ev.venue}
+                <MapPin className="w-3 h-3 text-[#ffee00]" /> {ev.description || 'City Hub'}
               </span>
               <span className="flex items-center gap-1 text-[#00e5ff] font-mono text-[10px]">
-                <Users className="w-3 h-3" /> {ev.attendees}
+                <Users className="w-3 h-3" /> {ev.source}
               </span>
             </div>
           </div>
@@ -74,3 +66,4 @@ export const EventsWidget: React.FC = () => {
     </div>
   );
 };
+

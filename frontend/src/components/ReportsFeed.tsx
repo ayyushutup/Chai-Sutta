@@ -1,69 +1,42 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertCircle, ThumbsUp, MapPin, Plus, X } from 'lucide-react';
+import { getCommunityReports, CommunityReport } from '../services/api';
 
-interface ReportItem {
-  id: string;
-  type: 'Waterlogging' | 'Roadblock' | 'Power Outage' | 'Accident' | 'Other';
-  location: string;
-  description: string;
-  upvotes: number;
-  timeAgo: string;
-  status: 'Verified' | 'Investigating' | 'Resolved';
+interface ReportsFeedProps {
+  city?: string;
 }
 
-const SAMPLE_REPORTS: ReportItem[] = [
-  {
-    id: 'r1',
-    type: 'Waterlogging',
-    location: 'Underpass near Sector 14 Metro',
-    description: 'Ankle-deep water accumulating after heavy evening rain. Avoid two-wheelers on left lane.',
-    upvotes: 78,
-    timeAgo: '12 mins ago',
-    status: 'Verified'
-  },
-  {
-    id: 'r2',
-    type: 'Power Outage',
-    location: 'Block C & D, Indiranagar',
-    description: 'Transformer spark caused localized blackout. Linemen arriving shortly.',
-    upvotes: 45,
-    timeAgo: '25 mins ago',
-    status: 'Investigating'
-  },
-  {
-    id: 'r3',
-    type: 'Roadblock',
-    location: 'MG Road Junction',
-    description: 'Fallen tree branch cleared by traffic police. Normal flow resuming.',
-    upvotes: 110,
-    timeAgo: '50 mins ago',
-    status: 'Resolved'
-  }
-];
-
-export const ReportsFeed: React.FC = () => {
-  const [reports, setReports] = useState<ReportItem[]>(SAMPLE_REPORTS);
+export const ReportsFeed: React.FC<ReportsFeedProps> = ({ city = 'Mumbai' }) => {
+  const [reports, setReports] = useState<CommunityReport[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [newLocation, setNewLocation] = useState('');
   const [newDesc, setNewDesc] = useState('');
-  const [newType, setNewType] = useState<ReportItem['type']>('Roadblock');
+  const [newType, setNewType] = useState<string>('Roadblock');
+
+  useEffect(() => {
+    getCommunityReports(city).then((data) => setReports(data));
+  }, [city]);
 
   const handleUpvote = (id: string) => {
-    setReports(prev => prev.map(r => r.id === id ? { ...r, upvotes: r.upvotes + 1 } : r));
+    setReports((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, upvotes: r.upvotes + 1 } : r))
+    );
   };
 
   const handleCreateReport = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLocation || !newDesc) return;
-    
-    const newReport: ReportItem = {
+
+    const newReport: CommunityReport = {
       id: 'r-' + Date.now(),
-      type: newType,
-      location: newLocation,
-      description: newDesc,
+      category: newType,
+      content: `${newLocation}: ${newDesc}`,
       upvotes: 1,
-      timeAgo: 'Just now',
-      status: 'Investigating'
+      downvotes: 0,
+      severity: 'moderate',
+      verification_status: 'investigating',
+      media_type: 'none',
+      created_at: 'Just now',
     };
 
     setReports([newReport, ...reports]);
@@ -87,7 +60,7 @@ export const ReportsFeed: React.FC = () => {
           </div>
         </div>
 
-        <button 
+        <button
           onClick={() => setShowModal(true)}
           className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#ff2a00] text-white font-marker text-xs font-bold shadow-[0_0_15px_rgba(255,42,0,0.5)] hover:bg-[#e02500] transition-all hover:scale-105"
         >
@@ -97,42 +70,38 @@ export const ReportsFeed: React.FC = () => {
 
       {/* Reports List */}
       <div className="space-y-3.5">
-        {reports.map(report => (
+        {reports.map((report) => (
           <div key={report.id} className="p-4 rounded-2xl bg-[#120327] border border-purple-400/15 hover:border-[#ff2a00]/40 transition-all space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full ${
-                  report.type === 'Waterlogging' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' :
-                  report.type === 'Power Outage' ? 'bg-[#ff9100]/20 text-[#ff9100] border border-[#ff9100]/40' :
-                  report.type === 'Accident' ? 'bg-[#ff2a00]/20 text-red-300 border border-[#ff2a00]/40' :
+                  report.category === 'Waterlogging' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' :
+                  report.category === 'Power Outage' ? 'bg-[#ff9100]/20 text-[#ff9100] border border-[#ff9100]/40' :
+                  report.category === 'Accident' ? 'bg-[#ff2a00]/20 text-red-300 border border-[#ff2a00]/40' :
                   'bg-[#c084fc]/20 text-[#c084fc] border border-[#c084fc]/40'
                 }`}>
-                  {report.type}
+                  {report.category}
                 </span>
 
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                  report.status === 'Verified' ? 'text-[#00ff66] bg-[#00ff66]/10 border border-[#00ff66]/30' :
-                  report.status === 'Resolved' ? 'text-[#00e5ff] bg-[#00e5ff]/10 border border-[#00e5ff]/30' :
+                  report.verification_status === 'verified' ? 'text-[#00ff66] bg-[#00ff66]/10 border border-[#00ff66]/30' :
+                  report.verification_status === 'resolved' ? 'text-[#00e5ff] bg-[#00e5ff]/10 border border-[#00e5ff]/30' :
                   'text-[#ff9100] bg-[#ff9100]/10 border border-[#ff9100]/30'
                 }`}>
-                  {report.status}
+                  {report.verification_status}
                 </span>
               </div>
 
-              <span className="text-[11px] font-mono text-purple-300">{report.timeAgo}</span>
+              <span className="text-[11px] font-mono text-purple-300">{report.created_at || 'Just now'}</span>
             </div>
 
             <div className="text-xs font-bold text-white flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5 text-[#ffee00] shrink-0" />
-              {report.location}
+              {report.content}
             </div>
 
-            <p className="text-xs text-purple-100 leading-relaxed">
-              {report.description}
-            </p>
-
             <div className="flex items-center justify-between pt-2 border-t border-purple-400/10 text-xs">
-              <button 
+              <button
                 onClick={() => handleUpvote(report.id)}
                 className="flex items-center gap-1.5 text-purple-200 hover:text-[#ffee00] transition-colors font-bold font-mono text-[11px]"
               >
@@ -150,7 +119,7 @@ export const ReportsFeed: React.FC = () => {
           <div className="dark-card max-w-md w-full p-6 space-y-4 relative border-[#ffee00]/40 bg-[#1e073d] shadow-[0_0_50px_rgba(255,238,0,0.3)]">
             <div className="flex items-center justify-between border-b border-purple-400/20 pb-3">
               <h3 className="text-lg font-bold font-marker text-white">Report Live Incident</h3>
-              <button 
+              <button
                 onClick={() => setShowModal(false)}
                 className="p-1 rounded-full text-purple-300 hover:text-white hover:bg-purple-900/40"
               >
@@ -163,7 +132,7 @@ export const ReportsFeed: React.FC = () => {
                 <label className="block text-xs font-semibold text-purple-200 mb-1">Incident Type</label>
                 <select
                   value={newType}
-                  onChange={(e) => setNewType(e.target.value as ReportItem['type'])}
+                  onChange={(e) => setNewType(e.target.value)}
                   className="w-full bg-[#120327] border border-purple-400/20 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#ffee00]"
                 >
                   <option value="Roadblock">Roadblock / Jam</option>
@@ -220,3 +189,4 @@ export const ReportsFeed: React.FC = () => {
     </div>
   );
 };
+

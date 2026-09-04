@@ -1,7 +1,22 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Flame, ArrowUpRight } from 'lucide-react';
+import { getCityMood, CityMoodData } from '../services/api';
 
-export const CityMoodWidget: React.FC = () => {
+interface CityMoodWidgetProps {
+  city?: string;
+}
+
+export const CityMoodWidget: React.FC<CityMoodWidgetProps> = ({ city = 'Mumbai' }) => {
+  const [moodData, setMoodData] = useState<CityMoodData | null>(null);
+
+  useEffect(() => {
+    getCityMood(city).then((data) => setMoodData(data));
+  }, [city]);
+
+  const score = moodData?.mood_score ?? 84;
+  const moodName = (moodData?.mood ?? 'ENERGETIC').toUpperCase();
+  const emoji = moodData?.mood_emoji ?? '⚡';
+
   return (
     <div className="dark-card p-6 rounded-2xl relative overflow-hidden bg-[#180533] border border-purple-400/20 shadow-xl h-full flex flex-col justify-between group hover:border-[#ffee00]/50 transition-all">
       {/* Header artwork area */}
@@ -22,7 +37,7 @@ export const CityMoodWidget: React.FC = () => {
           </div>
 
           <span className="bg-[#ffee00] text-black text-xs font-marker font-bold px-3 py-1 rounded-full shadow-[0_0_15px_rgba(255,238,0,0.4)]">
-            92% VIBRANT
+            {score}% {moodName} {emoji}
           </span>
         </div>
       </div>
@@ -34,10 +49,10 @@ export const CityMoodWidget: React.FC = () => {
             <span className="text-purple-100 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-[#ff2a00]" /> kettli Tapri Buzz & Energy
             </span>
-            <span className="text-[#ff2a00] font-mono font-bold">94%</span>
+            <span className="text-[#ff2a00] font-mono font-bold">{score}%</span>
           </div>
           <div className="w-full h-2.5 bg-black/60 rounded-full overflow-hidden p-0.5 border border-purple-400/20">
-            <div className="h-full bg-gradient-to-r from-[#ff2a00] to-[#ff9100] rounded-full" style={{ width: '94%' }} />
+            <div className="h-full bg-gradient-to-r from-[#ff2a00] to-[#ff9100] rounded-full" style={{ width: `${score}%` }} />
           </div>
         </div>
 
@@ -87,3 +102,4 @@ export const CityMoodWidget: React.FC = () => {
     </div>
   );
 };
+

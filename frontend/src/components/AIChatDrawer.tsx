@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Bot, Send, X, Sparkles, RefreshCw, MapPin } from 'lucide-react';
+import { sendChatMessage } from '../services/api';
 
 interface AIChatDrawerProps {
   isOpen: boolean;
@@ -34,7 +35,7 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({ isOpen, onClose, cit
     `Any breaking news or transit delays?`
   ];
 
-  const handleSend = (query?: string) => {
+  const handleSend = async (query?: string) => {
     const textToSend = query || input;
     if (!textToSend.trim()) return;
 
@@ -45,30 +46,22 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({ isOpen, onClose, cit
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     if (!query) setInput('');
     setLoading(true);
 
-    setTimeout(() => {
-      let aiText = `Here's what I found from live ${city} kettli data stream:\n\nTraffic conditions along major corridors are running smooth at an average speed of 42 km/h. Local weather is 29°C with Good AQI (48). No major delays reported on metro line 3.`;
-      let sources = ['TomTom Traffic API', 'kettli Citizen Reports (3 mins ago)', 'Qdrant Knowledge Base'];
+    const apiResult = await sendChatMessage(textToSend, city);
 
-      if (textToSend.toLowerCase().includes('cafe') || textToSend.toLowerCase().includes('tea') || textToSend.toLowerCase().includes('chai')) {
-        aiText = `Top recommendations for kettli chai & cafes in ${city}:\n1. **Third Wave Coffee Roasters** (Indiranagar) - High speed Wi-Fi, ambient seating.\n2. **Kullad Chai Corner** (Central Hub) - Freshly brewed kadak masala chai & snacks.\n3. **Subko Coffee & Bakehouse** - Premium single-origin roasts.`;
-        sources = ['Google Maps Places', 'Community Reviews', 'kettli Index'];
-      }
+    const aiMsg: Message = {
+      id: 'a-' + Date.now(),
+      sender: 'ai',
+      text: apiResult.reply,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      sources: apiResult.sources?.map((s: any) => s.title || s.name || 'City Sensor') || ['kettli Telemetry']
+    };
 
-      const aiMsg: Message = {
-        id: 'a-' + Date.now(),
-        sender: 'ai',
-        text: aiText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        sources
-      };
-
-      setMessages(prev => [...prev, aiMsg]);
-      setLoading(false);
-    }, 1000);
+    setMessages((prev) => [...prev, aiMsg]);
+    setLoading(false);
   };
 
   if (!isOpen) return null;
@@ -114,7 +107,7 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({ isOpen, onClose, cit
             }`}>
               <div className="whitespace-pre-line">{msg.text}</div>
 
-              {msg.sources && (
+              {msg.sources && msg.sources.length > 0 && (
                 <div className="mt-2.5 pt-2 border-t border-purple-400/20 space-y-1">
                   <div className="text-[10px] font-bold text-[#00e5ff] uppercase tracking-wider font-mono">Sources:</div>
                   <div className="flex flex-wrap gap-1">
@@ -178,3 +171,4 @@ export const AIChatDrawer: React.FC<AIChatDrawerProps> = ({ isOpen, onClose, cit
     </div>
   );
 };
+
