@@ -10,7 +10,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSignUpClick,
 }) => {
   return (
-    <header className="w-full bg-[#16042e]/60 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-8 py-4">
+    <header className="w-full bg-gradient-to-r from-[#6d28ff]/85 via-[#7c3aed]/85 to-[#6d28ff]/85 backdrop-blur-xl sticky top-0 z-40 px-4 sm:px-8 py-3.5 shadow-[0_10px_30px_rgba(109,40,255,0.3)]">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
         {/* Extreme Corner Left Logo */}
         <a href="#hero" className="flex items-center group">
@@ -25,14 +25,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center gap-3">
           <button 
             onClick={onLoginClick}
-            className="px-4 py-2 rounded-full text-xs font-semibold text-purple-200 hover:text-white hover:bg-purple-900/40 border border-purple-400/20 transition-all"
+            className="px-4 py-2 rounded-full text-xs font-semibold text-purple-100 hover:text-white hover:bg-[#6d28ff]/40 border border-purple-300/30 transition-all"
           >
             Log In
           </button>
           
           <button 
             onClick={onSignUpClick}
-            className="px-5 py-2 rounded-full text-xs font-extrabold font-sans text-black bg-[#ffee00] hover:bg-[#ffe600] transition-all shadow-[0_0_20px_rgba(255,238,0,0.4)] hover:scale-105"
+            className="px-5 py-2 rounded-full text-xs font-extrabold font-sans text-black bg-[#ffee00] hover:bg-[#ffe600] transition-all shadow-[0_0_20px_rgba(255,238,0,0.5)] hover:scale-105"
           >
             Sign Up
           </button>
