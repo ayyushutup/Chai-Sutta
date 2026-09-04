@@ -10,7 +10,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSignUpClick,
 }) => {
   return (
-    <header className="w-full bg-[#16042e]/90 backdrop-blur-xl sticky top-0 z-40 border-b border-purple-500/20 px-4 sm:px-8 py-4 shadow-[0_10px_30px_rgba(0,0,0,0.6)]">
+    <header className="w-full bg-[#16042e]/60 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-8 py-4">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
         {/* Extreme Corner Left Logo */}
         <a href="#hero" className="flex items-center group">
@@ -20,25 +20,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="h-10 sm:h-12 w-auto object-contain transition-transform group-hover:scale-105"
           />
         </a>
-
-        {/* Center Nav Links */}
-        <nav className="hidden md:flex items-center gap-8 text-sm font-semibold font-sans text-purple-100">
-          <a href="#hero" className="text-[#ffee00] font-bold relative after:content-[''] after:absolute after:-bottom-1 after:left-0 after:w-full after:h-[2px] after:bg-[#ffee00]">
-            Home
-          </a>
-          <a href="#telemetry" className="hover:text-[#ffee00] transition-colors">
-            Telemetry
-          </a>
-          <a href="#feeds" className="hover:text-[#ffee00] transition-colors">
-            Live Feeds
-          </a>
-          <a href="#stack" className="hover:text-[#ffee00] transition-colors">
-            Stack
-          </a>
-          <a href="#about" className="hover:text-[#ffee00] transition-colors">
-            About
-          </a>
-        </nav>
 
         {/* Right Section: Log In & Sign Up Buttons */}
         <div className="flex items-center gap-3">
