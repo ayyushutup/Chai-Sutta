@@ -11,7 +11,7 @@ export function App() {
     <div 
       className="min-h-screen bg-[#1c053c] text-white flex flex-col font-sans relative overflow-x-hidden bg-fixed bg-cover bg-center"
       style={{
-        backgroundImage: `linear-gradient(to bottom, rgba(28, 5, 60, 0.78), rgba(18, 3, 40, 0.92)), url('/purple-map-bg.jpg')`
+        backgroundImage: `linear-gradient(to bottom, rgba(20, 4, 45, 0.72), rgba(12, 2, 28, 0.88)), url('/hero-bg.jpg')`
       }}
     >
       {/* Background Liquid Vector Blob Accents */}
